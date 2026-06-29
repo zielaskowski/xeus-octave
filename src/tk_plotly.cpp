@@ -22,8 +22,6 @@
 #include <complex>
 #include <iostream>
 #include <iterator>
-#include <octave/mach-info.h>
-#include <octave/oct-stream.h>
 #include <sstream>
 #include <string>
 
@@ -39,12 +37,10 @@
 #include <octave/text-engine.h>
 #include <octave/utils.h>
 #include <octave/version.h>
-#include <xeus/xinterpreter.hpp>
 
 #include "xeus-octave/plotstream.hpp"
 #include "xeus-octave/tex2html.hpp"
 #include "xeus-octave/tk_plotly.hpp"
-#include "xeus-octave/xinterpreter.hpp"
 
 namespace nl = nlohmann;
 
@@ -548,6 +544,7 @@ void plotly_graphics_toolkit::redraw_figure(octave::graphics_object const& go) c
     // Show the newly created plot
     nl::json data = nl::json::object();
     data["application/vnd.plotly.v1+json"] = std::move(plot);
+
     xeus::get_interpreter().update_display_data(
       std::move(data), nl::json(nl::json::value_t::object), {{"display_id", id}}
     );
