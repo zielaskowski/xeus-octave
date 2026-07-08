@@ -20,7 +20,9 @@
 #include "xeus-octave/output.hpp"
 #include "xeus-octave/xinterpreter.hpp"
 
+#include <cstdio>
 #include <iostream>
+#include <string>
 
 namespace xeus_octave::io
 {

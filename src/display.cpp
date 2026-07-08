@@ -17,6 +17,7 @@
  * along with xeus-octave.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <iostream>
 #include <octave/cdef-package.h>
 #include <octave/defun-int.h>
 #include <octave/interpreter.h>
@@ -45,15 +46,24 @@ octave_value_list display_data(octave_value_list const& args, int /*nargout*/)
 
   // Get the data object
   nl::json data(nl::json::value_t::object);
+  std::string data_line;
   octave_map d = args(0).xmap_value("DATA must be a map");
-
   for (auto value : d)
   {
     auto v = d.contents(value.second);
     if (value.first == "application/json")
       data[value.first] = nl::json::parse(v(0).xstring_value("DATA contents must be strings"));
     else
-      data[value.first] = v(0).xstring_value("DATA contents must be strings");
+    {
+      data_line = v(0).xstring_value("DATA contents must be strings");
+      if (value.first == "text/plain" && xeus_octave::helper::inline_comment().size())
+      {
+        data_line.pop_back();  // remove EOL
+        data_line += xeus_octave::helper::inline_comment().back();
+        xeus_octave::helper::inline_comment().pop_back();
+      }
+      data[value.first] = data_line;
+    }
   }
 
   // Get the metadata object
@@ -69,7 +79,7 @@ octave_value_list display_data(octave_value_list const& args, int /*nargout*/)
       data[value.first] = v(0).xstring_value("METADATA contents must be strings");
     }
   }
-
+  std::clog << "data: \n" << data << std::endl;
   xeus::get_interpreter().display_data(data, metadata, nl::json(nl::json::value_t::object));
 
   return ovl();
