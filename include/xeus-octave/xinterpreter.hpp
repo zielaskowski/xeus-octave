@@ -23,6 +23,8 @@
 #include <nlohmann/json.hpp>
 #include <octave/interpreter.h>
 #include <octave/oct-stream.h>
+#include <string>
+#include <vector>
 #include <xeus/xinterpreter.hpp>
 
 #include "xeus-octave/config.hpp"
@@ -33,6 +35,10 @@ namespace nl = nlohmann;
 
 namespace xeus_octave
 {
+
+namespace helper{
+	std::vector<std::string>& inline_comment();
+}
 
 class XEUS_OCTAVE_API xoctave_interpreter : public xeus::xinterpreter
 {

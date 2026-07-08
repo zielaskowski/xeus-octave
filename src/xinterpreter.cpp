@@ -23,6 +23,8 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <istream>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <ostream>
 #include <regex>
@@ -95,6 +97,16 @@ void register_all(octave::interpreter& interpreter)
 }
 
 }  // namespace interpreter
+
+namespace helper
+{
+std::vector<std::string>& inline_comment()
+{
+  static std::vector<std::string> comment;
+  return comment;
+}
+
+}  // namespace helper
 
 namespace
 {
@@ -257,7 +269,7 @@ xoctave_interpreter::xoctave_interpreter()
 void xoctave_interpreter::execute_request_impl(
   send_reply_callback cb,
   int execution_count,
-  std::string const& code,
+  std::string const& code_raw,
   xeus::execute_request_config config,
   nl::json /*user_expressions*/
 )
@@ -317,11 +329,100 @@ void xoctave_interpreter::execute_request_impl(
   };
 
 #ifndef NDEBUG
-  std::clog << "Executing: " << code << std::endl;
+  std::clog << "Executing: " << code_raw << std::endl;
 #endif
   nl::json result;
 
   result = xeus::create_successful_reply();
+
+  // include comment
+  std::stringstream scode(code_raw);
+  std::stringstream c_lines;
+  std::string c_line;
+  std::string align;
+  std::string code_int;
+  std::string::size_type pos = std::string::npos;
+  helper::inline_comment().clear();
+  bool includeComment = false;
+
+  try
+  {
+    octave_value_list res = octave::feval("displayformat", octave_value_list("include_comment"), 1);
+    if (!res.empty())
+    {
+      res(0).string_value() == "true" ? includeComment = true : includeComment = false;
+    }
+  }
+  catch (octave::execution_exception const& e)
+  {
+    includeComment = false;
+    std::clog << e.message();
+    std::clog << "ERROR: Missing displayformat function?" << std::endl;
+  }
+
+  while (std::getline(scode >> std::ws, c_line))
+  {
+    // these functions are send through stringstream
+    // do not add inline_comment line
+    if (c_line.find("disp") == 0 || c_line.find("pkg") == 0 || c_line.find("syms") == 0)
+    {
+      c_lines << c_line << std::endl;
+      continue;
+    }
+    pos = c_line.find_first_of("#%");
+
+    // full line comment
+    // change to `disp("comment")`
+    if (pos == 0)
+    {
+      if (includeComment)
+      {
+        c_lines << "disp(\"" << c_line << "\")\n";
+      }
+    }
+
+    // inline comment; save for later use in display_data()
+    // split into lines and store inline comment for each line
+    else if (pos != std::string::npos)
+    {
+      if (includeComment)
+      {
+        c_lines << c_line << std::endl;
+
+        align = c_line;
+        align = align.erase(pos, c_line.length());
+        align.erase(0, align.find_last_not_of(" \n\t") + 1);
+
+        c_line.erase(0, pos);
+
+        helper::inline_comment().push_back(align + c_line + "\n");
+      }
+
+      // no comment
+      else
+      {
+        c_lines << c_line << std::endl;
+        helper::inline_comment().push_back("\n");
+      }
+    }
+    else
+    {
+      c_lines << c_line << std::endl;
+      helper::inline_comment().push_back("\n");
+    }
+  }
+
+  if (includeComment)
+  {
+    std::reverse(helper::inline_comment().begin(), helper::inline_comment().end());
+    code_int = c_lines.str().c_str();
+  }
+  else
+  {
+    code_int = code_raw;
+  }
+
+  std::string const code = code_int;
 
   // Extract magic ?
   std::string trim = code;
@@ -353,7 +454,6 @@ void xoctave_interpreter::execute_request_impl(
   else
   {
     splinter_cell guard(m_octave_interpreter, config.silent);
-
     // Execute code
     auto str_parser = parser(execution_count, code, m_octave_interpreter);
 
@@ -402,7 +502,7 @@ void xoctave_interpreter::execute_request_impl(
         int line = str_parser.get_lexer().m_filepos.line();
         int col = str_parser.get_lexer().m_filepos.column() - 1;  // Adjust column
 
-        fix_parse_error(evalue, code, line, col);
+        fix_parse_error(evalue, code_raw, line, col);
       }
       auto traceback = fix_traceback(ename, evalue, e.stack_trace());
       m_octave_interpreter.get_error_system().save_exception(e);
@@ -512,8 +612,8 @@ std::string get_symbol_from_cursor_pos(std::string const& code, size_t cursor_po
 
   size_t end_pos = cursor_pos ? ++cursor_pos : 0;
 
-  while (end_pos < code.size() &&
-         (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.'))
+  while (end_pos < code.size() && (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.')
+  )
   {
     end_pos++;
   }

@@ -11,6 +11,7 @@ function r = displayformat(typ, fmt)
 		settings.("struct") = "json";
 		settings.("scalar struct") = "json";
 		settings.("plotly_interactive_legend") = "false";
+		settings.("include_comment") = "false";
     end
 
     if (nargin == 0)
