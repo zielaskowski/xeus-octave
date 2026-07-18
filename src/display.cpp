@@ -26,6 +26,7 @@
 
 #include <nlohmann/json.hpp>
 #include <regex>
+#include <string>
 
 #include "xeus-octave/utils.hpp"
 #include "xeus-octave/xinterpreter.hpp"
@@ -55,14 +56,7 @@ octave_value_list display_data(octave_value_list const& args, int /*nargout*/)
       data[value.first] = nl::json::parse(v(0).xstring_value("DATA contents must be strings"));
     else
     {
-      data_line = v(0).xstring_value("DATA contents must be strings");
-      if (value.first == "text/plain" && xeus_octave::helper::inline_comment().size())
-      {
-        data_line.pop_back();  // remove EOL
-        data_line += xeus_octave::helper::inline_comment().back();
-        xeus_octave::helper::inline_comment().pop_back();
-      }
-      data[value.first] = data_line;
+      data[value.first] = v(0).xstring_value("DATA contents must be strings");
     }
   }
 
@@ -78,6 +72,36 @@ octave_value_list display_data(octave_value_list const& args, int /*nargout*/)
       auto v = m.contents(value.second);
       data[value.first] = v(0).xstring_value("METADATA contents must be strings");
     }
+  }
+
+  if (xeus_octave::helper::inline_comment().size())
+  {
+    std::string key = "";
+    std::string data_value = "";
+    std::string comment = xeus_octave::helper::inline_comment().back();
+    if (comment != "")
+    {
+      if (data.contains("text/plain"))
+      {
+        key = "text/plain";
+        data_value = data[key];
+        data_value.pop_back();  // remove EOL
+        data_value += comment + "\n";
+      }
+      if (data.contains("text/latex"))
+      {
+        key = "text/latex";
+        data_value = data[key];
+        data_value.pop_back();  // remove `$`
+        data_value.pop_back();  // remove `$`
+        std::string::size_type pos = comment.find_first_not_of(" \t");
+        if (pos == std::string::npos)
+          pos = 0;
+        data_value += " \\text{\\" + comment.substr(pos) + "}$$";
+      }
+    }
+    xeus_octave::helper::inline_comment().pop_back();
+    data[key] = data_value;
   }
   std::clog << "data: \n" << data << std::endl;
   xeus::get_interpreter().display_data(data, metadata, nl::json(nl::json::value_t::object));
