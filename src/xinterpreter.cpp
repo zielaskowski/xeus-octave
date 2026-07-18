@@ -336,14 +336,9 @@ void xoctave_interpreter::execute_request_impl(
   result = xeus::create_successful_reply();
 
   // include comment
-  std::stringstream scode(code_raw);
-  std::stringstream c_lines;
-  std::string c_line;
-  std::string align;
-  std::string code_int;
-  std::string::size_type pos = std::string::npos;
   helper::inline_comment().clear();
   bool includeComment = false;
+  std::string code_int;
 
   try
   {
@@ -359,33 +354,50 @@ void xoctave_interpreter::execute_request_impl(
     std::clog << e.message();
     std::clog << "ERROR: Missing displayformat function?" << std::endl;
   }
-
-  while (std::getline(scode >> std::ws, c_line))
+  if (includeComment)
   {
-    // these functions are send through stringstream
-    // do not add inline_comment line
-    if (c_line.find("disp") == 0 || c_line.find("pkg") == 0 || c_line.find("syms") == 0)
+    std::stringstream scode(code_raw);
+    std::stringstream c_lines;
+    std::string c_line;
+    std::string align;
+    std::string::size_type pos = std::string::npos;
+    while (std::getline(scode >> std::ws, c_line))
     {
-      c_lines << c_line << std::endl;
-      continue;
-    }
-    pos = c_line.find_first_of("#%");
-
-    // full line comment
-    // change to `disp("comment")`
-    if (pos == 0)
-    {
-      if (includeComment)
+      // these functions are send through stringstream
+      // do not add inline_comment line
+      if (
+        c_line.find("disp") == 0 ||      //
+        c_line.find("pkg") == 0 ||       //
+        c_line.find("syms") == 0 ||      //
+        c_line.find("graphics") == 0 ||  //
+        c_line.find("warning") == 0
+      )
       {
-        c_lines << "disp(\"" << c_line << "\")\n";
+        c_lines << c_line << std::endl;
+        continue;  // display_data() won't be called so skip inline_comment()
       }
-    }
+      // semicolon at the end: skip line
+      if (c_line.find(";") == c_line.length() - 1)
+      {
+        c_lines << c_line << std::endl;
+        continue;
+      }
 
-    // inline comment; save for later use in display_data()
-    // split into lines and store inline comment for each line
-    else if (pos != std::string::npos)
-    {
-      if (includeComment)
+      pos = c_line.find_first_of("#%");
+
+      // full line comment
+      // change to `disp("comment")`
+      if (pos == 0)
+      {
+        if (c_line == "#")
+          c_line = "";
+        c_lines << "disp(\"" << c_line << "\")\n";
+        continue;
+      }
+
+      // inline comment; save for later use in display_data()
+      // split into lines and store inline comment for each line
+      if (pos != std::string::npos)
       {
         c_lines << c_line << std::endl;
 
@@ -395,25 +407,14 @@ void xoctave_interpreter::execute_request_impl(
 
         c_line.erase(0, pos);
 
-        helper::inline_comment().push_back(align + c_line + "\n");
+        helper::inline_comment().push_back(align + c_line);
+        continue;
       }
-
-      // no comment
-      else
-      {
-        c_lines << c_line << std::endl;
-        helper::inline_comment().push_back("\n");
-      }
-    }
-    else
-    {
+      // no comment at all
       c_lines << c_line << std::endl;
-      helper::inline_comment().push_back("\n");
+      helper::inline_comment().push_back("");
     }
-  }
 
-  if (includeComment)
-  {
     std::reverse(helper::inline_comment().begin(), helper::inline_comment().end());
     code_int = c_lines.str().c_str();
   }
@@ -612,8 +613,8 @@ std::string get_symbol_from_cursor_pos(std::string const& code, size_t cursor_po
 
   size_t end_pos = cursor_pos ? ++cursor_pos : 0;
 
-  while (end_pos < code.size() && (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.')
-  )
+  while (end_pos < code.size() &&
+         (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.'))
   {
     end_pos++;
   }
