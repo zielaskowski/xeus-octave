@@ -365,13 +365,12 @@ void xoctave_interpreter::execute_request_impl(
     {
       // these functions are send through stringstream
       // do not add inline_comment line
-      if (
-        c_line.find("disp") == 0 ||      //
-        c_line.find("pkg") == 0 ||       //
-        c_line.find("syms") == 0 ||      //
-        c_line.find("graphics") == 0 ||  //
-        c_line.find("warning") == 0
-      )
+      if (c_line.find("disp") == 0 ||      //
+          c_line.find("pkg") == 0 ||       //
+          c_line.find("syms") == 0 ||      //
+          c_line.find("graphics") == 0 ||  //
+          c_line.find("warning") == 0 ||   //
+          c_line.find("%") == 0)
       {
         c_lines << c_line << std::endl;
         continue;  // display_data() won't be called so skip inline_comment()
@@ -383,7 +382,7 @@ void xoctave_interpreter::execute_request_impl(
         continue;
       }
 
-      pos = c_line.find_first_of("#%");
+      pos = c_line.find_first_of("#");
 
       // full line comment
       // change to `disp("comment")`
@@ -613,8 +612,8 @@ std::string get_symbol_from_cursor_pos(std::string const& code, size_t cursor_po
 
   size_t end_pos = cursor_pos ? ++cursor_pos : 0;
 
-  while (end_pos < code.size() &&
-         (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.'))
+  while (end_pos < code.size() && (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.')
+  )
   {
     end_pos++;
   }
