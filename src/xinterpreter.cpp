@@ -359,34 +359,76 @@ void xoctave_interpreter::execute_request_impl(
     std::stringstream scode(code_raw);
     std::stringstream c_lines;
     std::string c_line;
-    std::string align;
+    std::string cmd;
+    bool commentP = false;  // percent comment
+    bool commentH = false;  // hash commment
     std::string::size_type pos = std::string::npos;
-    while (std::getline(scode >> std::ws, c_line))
+    while (std::getline(scode, c_line))
     {
       // these functions are send through stringstream
       // do not add inline_comment line
-      if (c_line.find("disp") == 0 ||      //
-          c_line.find("pkg") == 0 ||       //
-          c_line.find("syms") == 0 ||      //
-          c_line.find("graphics") == 0 ||  //
-          c_line.find("warning") == 0 ||   //
-          c_line.find("%") == 0)
+      if (
+        c_line.find("disp") == 0 ||      //
+        c_line.find("pkg") == 0 ||       //
+        c_line.find("syms") == 0 ||      //
+        c_line.find("graphics") == 0 ||  //
+        c_line.find("warning") == 0
+      )
       {
         c_lines << c_line << std::endl;
         continue;  // display_data() won't be called so skip inline_comment()
       }
-      // semicolon at the end: skip line
-      if (c_line.find(";") == c_line.length() - 1)
+
+      // do we have comment?
+      pos = c_line.find_first_of("#%");
+      if (pos != std::string::npos)
+      {
+        if (c_line.at(pos) == '#')
+        {
+          commentH = true;
+          commentP = false;
+        }
+        else
+        {
+          commentH = false;
+          commentP = true;
+        }
+        cmd = c_line;
+        // remove comment
+        cmd.erase(pos, cmd.length());
+      }
+      else
+      {  // no comment
+        commentH = false;
+        commentP = false;
+        cmd = c_line;
+      }
+
+      // semicolon in cmd: skip display_data()
+      if ((cmd.find(";") != std::string::npos))
       {
         c_lines << c_line << std::endl;
         continue;
       }
 
-      pos = c_line.find_first_of("#");
+      // full line'%' comment: skip display_data()
+      if (commentP & !cmd.length())
+      {
+        c_lines << c_line << std::endl;
+        continue;
+      }
 
-      // full line comment
-      // change to `disp("comment")`
-      if (pos == 0)
+      // inline '%' comment: append "" for display_data()
+      if (commentP & cmd.length())
+      {
+        helper::inline_comment().push_back("");
+        c_lines << c_line << std::endl;
+        continue;
+      }
+
+      // full line '#' comment
+      // change to `disp("comment")` and skip display_data()
+      if (commentH & (cmd.find_last_not_of(" \n\t") == std::string::npos))
       {
         if (c_line == "#")
           c_line = "";
@@ -394,19 +436,16 @@ void xoctave_interpreter::execute_request_impl(
         continue;
       }
 
-      // inline comment; save for later use in display_data()
-      // split into lines and store inline comment for each line
-      if (pos != std::string::npos)
+      // inline '#' comment; save for display_data()
+      if (commentH)
       {
         c_lines << c_line << std::endl;
 
-        align = c_line;
-        align = align.erase(pos, c_line.length());
-        align.erase(0, align.find_last_not_of(" \n\t") + 1);
-
+        // keep alignment
+        cmd.erase(0, cmd.find_last_not_of(" \n\t") + 1);
         c_line.erase(0, pos);
 
-        helper::inline_comment().push_back(align + c_line);
+        helper::inline_comment().push_back(cmd + c_line);
         continue;
       }
       // no comment at all
@@ -612,8 +651,8 @@ std::string get_symbol_from_cursor_pos(std::string const& code, size_t cursor_po
 
   size_t end_pos = cursor_pos ? ++cursor_pos : 0;
 
-  while (end_pos < code.size() && (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.')
-  )
+  while (end_pos < code.size() &&
+         (std::isalnum(code.at(end_pos)) || code.at(end_pos) == '_' || code.at(end_pos) == '.'))
   {
     end_pos++;
   }
