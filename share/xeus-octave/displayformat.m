@@ -11,6 +11,7 @@ function r = displayformat(typ, fmt)
 		settings.("struct") = "json";
 		settings.("scalar struct") = "json";
 		settings.("plotly_interactive_legend") = "false";
+		settings.("include_comment") = "false";
     end
 
     if (nargin == 0)
@@ -24,8 +25,8 @@ function r = displayformat(typ, fmt)
 			settings.("range") = "latex";
 			settings.("scalar") = "latex";
 			settings.("complex scalar") = "latex";
-               		settings.("struct") = "json";
-               		settings.("scalar struct") = "json";
+               	settings.("struct") = "json";
+               	settings.("scalar struct") = "json";
 		elseif (strcmp(typ, "html"))
 			settings.("matrix") = "html";
 			settings.("bool matrix") = "html";

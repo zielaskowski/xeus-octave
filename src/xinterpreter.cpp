@@ -23,6 +23,8 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <istream>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <ostream>
 #include <regex>
@@ -95,6 +97,16 @@ void register_all(octave::interpreter& interpreter)
 }
 
 }  // namespace interpreter
+
+namespace helper
+{
+std::vector<std::string>& inline_comment()
+{
+  static std::vector<std::string> comment;
+  return comment;
+}
+
+}  // namespace helper
 
 namespace
 {
@@ -257,7 +269,7 @@ xoctave_interpreter::xoctave_interpreter()
 void xoctave_interpreter::execute_request_impl(
   send_reply_callback cb,
   int execution_count,
-  std::string const& code,
+  std::string const& code_raw,
   xeus::execute_request_config config,
   nl::json /*user_expressions*/
 )
@@ -317,11 +329,139 @@ void xoctave_interpreter::execute_request_impl(
   };
 
 #ifndef NDEBUG
-  std::clog << "Executing: " << code << std::endl;
+  std::clog << "Executing: " << code_raw << std::endl;
 #endif
   nl::json result;
 
   result = xeus::create_successful_reply();
+
+  // include comment
+  helper::inline_comment().clear();
+  bool includeComment = false;
+  std::string code_int;
+
+  try
+  {
+    octave_value_list res = octave::feval("displayformat", octave_value_list("include_comment"), 1);
+    if (!res.empty())
+    {
+      res(0).string_value() == "true" ? includeComment = true : includeComment = false;
+    }
+  }
+  catch (octave::execution_exception const& e)
+  {
+    includeComment = false;
+    std::clog << e.message();
+    std::clog << "ERROR: Missing displayformat function?" << std::endl;
+  }
+  if (includeComment)
+  {
+    std::stringstream scode(code_raw);
+    std::stringstream c_lines;
+    std::string c_line;
+    std::string cmd;
+    bool commentP = false;  // percent comment
+    bool commentH = false;  // hash commment
+    std::string::size_type pos = std::string::npos;
+    while (std::getline(scode, c_line))
+    {
+      // these functions are send through stringstream
+      // do not add inline_comment line
+      if (
+        c_line.find("disp") == 0 ||      //
+        c_line.find("pkg") == 0 ||       //
+        c_line.find("syms") == 0 ||      //
+        c_line.find("graphics") == 0 ||  //
+        c_line.find("warning") == 0
+      )
+      {
+        c_lines << c_line << std::endl;
+        continue;  // display_data() won't be called so skip inline_comment()
+      }
+
+      // do we have comment?
+      pos = c_line.find_first_of("#%");
+      if (pos != std::string::npos)
+      {
+        if (c_line.at(pos) == '#')
+        {
+          commentH = true;
+          commentP = false;
+        }
+        else
+        {
+          commentH = false;
+          commentP = true;
+        }
+        cmd = c_line;
+        // remove comment
+        cmd.erase(pos, cmd.length());
+      }
+      else
+      {  // no comment
+        commentH = false;
+        commentP = false;
+        cmd = c_line;
+      }
+
+      // semicolon in cmd: skip display_data()
+      if ((cmd.find(";") != std::string::npos))
+      {
+        c_lines << c_line << std::endl;
+        continue;
+      }
+
+      // full line'%' comment: skip display_data()
+      if (commentP & !cmd.length())
+      {
+        c_lines << c_line << std::endl;
+        continue;
+      }
+
+      // inline '%' comment: append "" for display_data()
+      if (commentP & cmd.length())
+      {
+        helper::inline_comment().push_back("");
+        c_lines << c_line << std::endl;
+        continue;
+      }
+
+      // full line '#' comment
+      // change to `disp("comment")` and skip display_data()
+      if (commentH & (cmd.find_last_not_of(" \n\t") == std::string::npos))
+      {
+        if (c_line == "#")
+          c_line = "";
+        c_lines << "disp(\"" << c_line << "\")\n";
+        continue;
+      }
+
+      // inline '#' comment; save for display_data()
+      if (commentH)
+      {
+        c_lines << c_line << std::endl;
+
+        // keep alignment
+        cmd.erase(0, cmd.find_last_not_of(" \n\t") + 1);
+        c_line.erase(0, pos);
+
+        helper::inline_comment().push_back(cmd + c_line);
+        continue;
+      }
+      // no comment at all
+      c_lines << c_line << std::endl;
+      helper::inline_comment().push_back("");
+    }
+
+    std::reverse(helper::inline_comment().begin(), helper::inline_comment().end());
+    code_int = c_lines.str().c_str();
+  }
+  else
+  {
+    code_int = code_raw;
+  }
+
+  std::string const code = code_int;
 
   // Extract magic ?
   std::string trim = code;
@@ -353,7 +493,6 @@ void xoctave_interpreter::execute_request_impl(
   else
   {
     splinter_cell guard(m_octave_interpreter, config.silent);
-
     // Execute code
     auto str_parser = parser(execution_count, code, m_octave_interpreter);
 
@@ -402,7 +541,7 @@ void xoctave_interpreter::execute_request_impl(
         int line = str_parser.get_lexer().m_filepos.line();
         int col = str_parser.get_lexer().m_filepos.column() - 1;  // Adjust column
 
-        fix_parse_error(evalue, code, line, col);
+        fix_parse_error(evalue, code_raw, line, col);
       }
       auto traceback = fix_traceback(ename, evalue, e.stack_trace());
       m_octave_interpreter.get_error_system().save_exception(e);
