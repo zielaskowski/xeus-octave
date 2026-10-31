@@ -372,13 +372,13 @@ void xoctave_interpreter::execute_request_impl(
         c_line.find("pkg") == 0 ||       //
         c_line.find("syms") == 0 ||      //
         c_line.find("graphics") == 0 ||  //
-        c_line.find("warning") == 0
+        c_line.find("warning") == 0 ||   //
+        c_line == ""                     // skip empty lines
       )
       {
         c_lines << c_line << std::endl;
         continue;  // display_data() won't be called so skip inline_comment()
       }
-
       // do we have comment?
       pos = c_line.find_first_of("#%");
       if (pos != std::string::npos)
